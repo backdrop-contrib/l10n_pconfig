@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  *   Plural formula configurator module.
@@ -18,10 +17,6 @@
  */
 function l10n_pconfig_form_alter(&$form, $form_state, $form_id) {
   if (in_array($form_id, array('language_admin_add_form', 'language_admin_edit_form'))) {
-    // Add our submit handler to match the plural formula to the language
-    // if we have a known formula for it.
-    //$form['#submit'][] = 'l10n_pconfig_predefined_plural_formula_submit';
-
     // Build a list of examples we have with existing languages.
     include_once BACKDROP_ROOT . '/core/includes/standard.inc';
     $formulas = l10n_pconfig_plural_formulas();
@@ -72,15 +67,6 @@ function l10n_pconfig_form_alter(&$form, $form_state, $form_id) {
       '#maxlength' => 255,
     );
     $form_root['direction']['#weight'] = 180;
-
-  
-    // $form['#validate'][] = 'l10n_pconfig_custom_plural_formula_validate';
-    // $form['#submit'][] = 'l10n_pconfig_custom_plural_formula_submit';
-
-    // // Add our submit handler to match the plural formula to the language
-    // // if we have a known formula for it.
-    // $form['#validate'][] = 'l10n_pconfig_custom_plural_formula_validate';
-    // // $form['#submit'][] = 'l10n_pconfig_custom_plural_formula_submit';
   }
 }
 
