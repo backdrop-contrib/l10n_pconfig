@@ -4,7 +4,7 @@
  * @file
  *   Plural formula configurator module.
  *
- *   Drupal itself does not let you edit plural formulas for languages because
+ *   Backdrop itself does not let you edit plural formulas for languages because
  *   of the complexity involved. This is an "advanced" user module letting you
  *   edit the plural formulas, providing sensible defaults.
  */
@@ -17,48 +17,52 @@
  * Add helpers to let people handle plural formula setup and correction easier.
  */
 function l10n_pconfig_form_alter(&$form, $form_state, $form_id) {
-
-  if ($form_id == 'locale_languages_predefined_form') {
+  if (in_array($form_id, array('language_admin_add_form', 'language_admin_edit_form'))) {
     // Add our submit handler to match the plural formula to the language
     // if we have a known formula for it.
-    $form['#submit'][] = 'l10n_pconfig_predefined_plural_formula_submit';
-  }
+    //$form['#submit'][] = 'l10n_pconfig_predefined_plural_formula_submit';
 
-  elseif (in_array($form_id, array('locale_languages_custom_form', 'locale_languages_edit_form'))) {
     // Build a list of examples we have with existing languages.
-    include_once DRUPAL_ROOT . '/includes/iso.inc';
+    include_once BACKDROP_ROOT . '/core/includes/standard.inc';
     $formulas = l10n_pconfig_plural_formulas();
-    $predefined = _locale_get_predefined_list();
+    $predefined = standard_language_list();
     $types = array();
     foreach ($formulas as $langcode => $plural_formula) {
-      $types[$plural_formula][] = t($predefined[$langcode][0]);
+      if (!empty($predefined[$langcode])) {
+        $types[$plural_formula][] = t($predefined[$langcode][0]);
+      }
     }
     $examples = array();
     foreach ($types as $plural_formula => $languages) {
       $examples[] = t('<strong>@formula</strong> used by %languages', array('@formula' => $plural_formula, '%languages' => join(', ', $languages)));
     }
 
-    // Pick form root depending on form.
-    $form_root = &$form;
-    if ($form_id == 'locale_languages_custom_form') {
-      $form_root = &$form['custom language'];
-    }
     // Pick previous plural formula if editing an existing language.
     $plural_formula = '';
     if (isset($form['langcode']['#value'])) {
-      $language = db_select('languages', 'l')
-        ->fields('l', array('formula', 'plurals'))
-        ->condition('l.language', $form['langcode']['#value'])
-        ->execute()
-        ->fetchObject();
-      if (!empty($language->formula) || !empty($language->plurals)) {
-        $plural_formula = 'nplurals='. $language->plurals .'; plural='. strtr($language->formula, array('$' => '')) .';';
+      $langcode = $form['langcode']['#value'];
+      $locale_plurals = state_get('locale_translation_plurals', array());
+      if (!empty($locale_plurals[$langcode]['formula']) || !empty($locale_plurals[$langcode]['plurals'])) {
+        $plural_formula = 'nplurals='. $locale_plurals[$langcode]['plurals'] .'; plural='. strtr($locale_plurals[$langcode]['formula'], array('$' => '')) .';';
       }
     }
 
-    // Add text field to enter the plural formula.
-    $form_root['actions']['#weight'] = 200;
-    $form_root['direction']['#weight'] = 180;
+    if ($form_id == 'language_admin_edit_form') {
+      $form_root = &$form;
+      $form_root['actions']['#weight'] = 200;
+    }
+    else {
+      $form_root = &$form['custom_language'];
+      // Add our submit handler to match the plural formula to the language
+      // if we have a known formula for it.
+      $form['predefined_submit']['#submit'][] = 'l10n_pconfig_predefined_plural_formula_submit';
+      $form_root['submit']['#weight'] = 200;
+      $form_root['submit']['#submit'][] = 'l10n_pconfig_custom_plural_formula_submit';
+      $form_root['submit']['#validate'][] = 'l10n_pconfig_custom_plural_formula_validate';
+    }
+
+   
+    // Add text field to enter the plural formula for custom language.
     $form_root['plural_formula'] = array(
       '#type' => 'textfield',
       '#title' => t('Plural formula'),
@@ -67,30 +71,25 @@ function l10n_pconfig_form_alter(&$form, $form_state, $form_id) {
       '#default_value' => $plural_formula,
       '#maxlength' => 255,
     );
-    $form['#validate'][] = 'l10n_pconfig_custom_plural_formula_validate';
-    $form['#submit'][] = 'l10n_pconfig_custom_plural_formula_submit';
+    $form_root['direction']['#weight'] = 180;
+
+  
+    // $form['#validate'][] = 'l10n_pconfig_custom_plural_formula_validate';
+    // $form['#submit'][] = 'l10n_pconfig_custom_plural_formula_submit';
+
+    // // Add our submit handler to match the plural formula to the language
+    // // if we have a known formula for it.
+    // $form['#validate'][] = 'l10n_pconfig_custom_plural_formula_validate';
+    // // $form['#submit'][] = 'l10n_pconfig_custom_plural_formula_submit';
   }
 }
 
-/**
- * Predefined language, if we also know about the plural formula, set that too.
- */
-function l10n_pconfig_predefined_plural_formula_submit($form, &$form_state) {
-  $langcode = $form_state['values']['langcode'];
-  $formulas = l10n_pconfig_plural_formulas();
-  if (isset($formulas[$langcode])) {
-    l10n_pconfig_update_plural_formula($langcode, $formulas[$langcode]);
-  }
-  else {
-    drupal_set_message(t('Plural formula cannot be automatically determined for the language added. Please <a href="@language-edit">edit the language</a> and specify the plural formula manually.', array('@language-edit' => url('admin/settings/language/edit/'. $langcode))), 'warning');
-  }
-}
 
 /**
  * Custom language; check the validitiy of the plural formula given.
  */
 function l10n_pconfig_custom_plural_formula_validate($form, &$form_state) {
-  if (!is_array($result = l10n_pconfig_parse_plural_formula($form_state['values']['plural_formula']))) {
+  if (!is_array(l10n_pconfig_parse_plural_formula($form_state['values']['plural_formula']))) {
     form_set_error('plural_formula', t('Incorrect plural formula format. Please check your sources again.'));
   }
 }
@@ -102,10 +101,23 @@ function l10n_pconfig_custom_plural_formula_submit($form, &$form_state) {
   l10n_pconfig_update_plural_formula($form_state['values']['langcode'], $form_state['values']['plural_formula']);
 }
 
+/**
+ * Predefined language, if we also know about the plural formula, set that too.
+ */
+function l10n_pconfig_predefined_plural_formula_submit($form, &$form_state) {
+  $langcode = $form_state['values']['predefined_langcode'];
+  $formulas = l10n_pconfig_plural_formulas();
+  if (isset($formulas[$langcode])) {
+    l10n_pconfig_update_plural_formula($langcode, $formulas[$langcode]);
+  }
+  else {
+    backdrop_set_message(t('Plural formula cannot be automatically determined for the language added. Please <a href="@language-edit">edit the language</a> and specify the plural formula manually.', array('@language-edit' => url('admin/config/regional/language/edit/'. $langcode))), 'warning');
+  }
+}
 // = API functions =============================================================
 
 /**
- * A list of "Drupal languages" compiled from the list of languages
+ * A list of "Backdrop languages" compiled from the list of languages
  * in drupal.org CVS on July 18th, 2007.
  *
  * Plural information based on:
@@ -219,13 +231,12 @@ function l10n_pconfig_plural_formulas() {
  */
 function l10n_pconfig_update_plural_formula($langcode, $plural_formula) {
   if (is_array($parsed_formula = l10n_pconfig_parse_plural_formula($plural_formula))) {
-    db_update('languages')
-      ->fields(array(
-        'plurals' => $parsed_formula[0],
-        'formula' => $parsed_formula[1],
-      ))
-      ->condition('language', $langcode)
-      ->execute();
+    $locale_plurals = state_get('locale_translation_plurals', array());
+    $locale_plurals[$langcode] = array(
+      'plurals' => $parsed_formula[0],
+      'formula' => $parsed_formula[1],
+    );
+    state_set('locale_translation_plurals', $locale_plurals);
   }
 }
 
@@ -245,7 +256,7 @@ function l10n_pconfig_parse_plural_formula($plural_formula) {
     $nplurals = substr($nplurals, 9, strpos($nplurals, ";") - 9);
   }
   else {
-    drupal_set_message(t('Error when parsing plural formula for number of forms: %formula. Invalid formula given.', array('%formula' => $plural_formula)), 'error');
+    backdrop_set_message(t('Error when parsing plural formula for number of forms: %formula. Invalid formula given.', array('%formula' => $plural_formula)), 'error');
     return FALSE;
   }
 
@@ -254,18 +265,19 @@ function l10n_pconfig_parse_plural_formula($plural_formula) {
     $plural = substr($plural, 7, strpos($plural, ";") - 7);
   }
   else {
-    drupal_set_message(t('Error when parsing plural formula for use of forms: %formula. Invalid formula given.', array('%formula' => $plural_formula)), 'error');
+    backdrop_set_message(t('Error when parsing plural formula for use of forms: %formula. Invalid formula given.', array('%formula' => $plural_formula)), 'error');
     return FALSE;
   }
 
   // Get PHP version of the plural formula.
+  include_once BACKDROP_ROOT . '/core/includes/gettext.inc';
   $plural = _locale_import_parse_arithmetic($plural);
 
   if ($plural !== FALSE) {
     return array($nplurals, $plural);
   }
   else {
-    drupal_set_message(t('Error when parsing plural formula: %formula. Invalid formula given.', array('%formula' => $plural_formula)), 'error');
+    backdrop_set_message(t('Error when parsing plural formula: %formula. Invalid formula given.', array('%formula' => $plural_formula)), 'error');
     return FALSE;
   }
 }
