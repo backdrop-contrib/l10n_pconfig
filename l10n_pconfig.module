@@ -45,6 +45,8 @@ function l10n_pconfig_form_alter(&$form, $form_state, $form_id) {
     if ($form_id == 'language_admin_edit_form') {
       $form_root = &$form;
       $form_root['actions']['#weight'] = 200;
+      $form_root['#submit'][] = 'l10n_pconfig_custom_plural_formula_submit';
+      $form_root['#validate'][] = 'l10n_pconfig_custom_plural_formula_validate';
     }
     else {
       $form_root = &$form['custom_language'];
